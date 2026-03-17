@@ -1,0 +1,56 @@
+@startuml
+!theme plain
+
+title Activity Diagram - POST /{tenant}/{customerType}/tokenization/sendPassCode
+
+start
+:Recibir request sendPassCode;
+:Log request y tenant;
+:Configurar servicio por tenant;
+:Verificar JWS (verify);
+:Desencriptar JWE (decrypt);
+
+if (JSON desencriptado mapea a\nEncryptedDataSendPass?) then (si)
+  :Asignar otpDestiny desde request;
+  :Cargar parametros de notificacion (validParams);
+  :Determinar msgType\n(email o sms) por otpDestiny;
+
+  if (emulate = true?) then (si)
+    :Construir NovoResponse rc=0,msg=OK;
+    :Retornar HTTP 200;
+    stop
+  else (no)
+    :Setear header requestId;
+    :Invocar setNewSendPassCodeTokenization;
+
+    if (Categoria tkSendPassCode activa?) then (si)
+      :Buscar cliente por PAN;
+      :Elegir canal segun msgType;
+
+      if (msgType=email y canal email activo?) then (si)
+        :Enviar OTP por email (Message Connector /send);
+      else (no)
+        if (msgType=sms y canal sms activo?) then (si)
+          :Enviar OTP por sms (Message Connector /sendSms);
+        else (no)
+          :No enviar mensaje;
+        endif
+      endif
+
+      :Guardar traza tokenization en BD;
+      :Set data = "Notification category ... Activate";
+    else (no)
+      :Set data = "Notification category ... Disabled";
+    endif
+
+    :Retornar NovoResponse rc=0,msg=OK,data;
+    :HTTP 200;
+    stop
+  endif
+else (no)
+  :Retornar HTTP 200 sin body;
+  stop
+endif
+
+@enduml
+

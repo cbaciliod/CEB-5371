@@ -1,0 +1,86 @@
+@startuml
+!theme plain
+
+title POST /{tenant}/{customerType}/tokenization/sendPassCode - End to End
+
+autonumber
+
+actor "Cliente Tokenization" as Client
+participant "API Gateway" as Gateway
+participant "NotificationTokenizationController" as Controller
+participant "EncryptSignServiceImpl" as CryptoService
+participant "NotificationService" as NotifService
+participant "NotificationRepository" as Repo
+database "Oracle DB\n(onboarding/customer packages)" as DB
+participant "Message Connector" as MsgConnector
+
+Client -> Gateway: POST /{tenant}/{customerType}/tokenization/sendPassCode\nHeaders + SendPassCodeTokenization
+Gateway -> Controller: Forward request
+
+Controller -> NotifService: configService(tenantId)
+Controller -> CryptoService: verify(encryptedData, tenantId)
+CryptoService --> Controller: jwePayload (verificado)
+Controller -> CryptoService: decrypt(jwePayload, tenantId)
+CryptoService --> Controller: json plano
+
+alt JSON decrypt no mapea a EncryptedDataSendPass
+  Controller --> Gateway: HTTP 200 (sin body)
+  Gateway --> Client: HTTP 200
+else JSON valido
+  Controller -> Controller: validParams(tenantId)\nlee notificationCategories.emulate
+  Controller -> NotifService: isEmail(otpDestiny)
+  NotifService --> Controller: msgType = email | sms
+
+  alt emulate = true
+    Controller --> Gateway: HTTP 200 {"rc":"0","msg":"OK"}
+    Gateway --> Client: HTTP 200
+  else emulate = false
+    Controller -> NotifService: setHeaderRequestId(requestId)
+    Controller -> NotifService: setNewSendPassCodeTokenization(..., msgType)
+
+    NotifService -> NotifService: obtiene categoria tkSendPassCode en coreSettings
+    alt categoria activa = false
+      NotifService --> Controller: data = "Notification category ... Disabled"
+    else categoria activa = true
+      NotifService -> Repo: getCustomerInfoTokenization(tenantId, PAN)
+      Repo -> DB: onboarding_BO_package.customer_profile_by_card
+      DB --> Repo: personalInfo + personalContactInfo
+      Repo --> NotifService: customerPersonalInfo
+
+      alt error obteniendo cliente (NovoException)
+        NotifService --> Controller: throw CUSTOMER_ID_NOT_FOUND
+      else cliente encontrado
+        alt msgType = email y canal email activo
+          NotifService -> MsgConnector: /send (email template + otpValue)
+          MsgConnector --> NotifService: accepted
+        else msgType = sms y canal sms activo
+          NotifService -> MsgConnector: /sendSms (otpValue)
+          MsgConnector --> NotifService: accepted
+        else canal no activo para msgType
+          NotifService -> NotifService: no envia mensaje
+        end
+
+        NotifService -> Repo: saveTokenizationNotification(trace)
+        Repo -> DB: onboarding_bo_package.save_log_token_notification
+        DB --> Repo: RC_VAR
+        Repo --> NotifService: OK
+
+        NotifService --> Controller: data = "Notification category ... Activate"
+      end
+    end
+
+    Controller --> Gateway: HTTP 200 {"rc":"0","msg":"OK","data":...}
+    Gateway --> Client: HTTP 200
+  end
+end
+
+alt Controller captura NovoException
+  Controller --> Gateway: HTTP según ResponseType\nbody e.getResponse()
+  Gateway --> Client: HTTP error mapeado
+else Controller captura Exception generica
+  Controller --> Gateway: HTTP 500 + mensaje
+  Gateway --> Client: HTTP 500
+end
+
+@enduml
+
