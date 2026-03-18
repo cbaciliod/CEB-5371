@@ -9,5 +9,5 @@ include::CEB/_index4.adoc[]
 include::CEB/_index5.adoc[]
 
 include::CEB/_index6.adoc[]
-include::CEB/_index7.adoc[]
 
+include::CEB/_index7.adoc[]
