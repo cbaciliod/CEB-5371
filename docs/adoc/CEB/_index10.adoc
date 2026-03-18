@@ -1,0 +1,50 @@
+== Estimación de cambios de código para implementar 3DS sobre el flujo actual
+
+Esta estimación corresponde al escenario *Plan B* (reutilizar endpoint actual) y se expresa como rango por dependencia de definiciones funcionales finales de 3DS.
+
+=== Alcance considerado para la estimación
+
+. Mantener `POST /tokenization/sendPassCode` como endpoint público.
+. Incorporar discriminador de flujo (`TOKENIZATION` vs `THREEDS`).
+. Implementar reglas 3DS faltantes: expiración, intentos e idempotencia.
+. Persistir trazabilidad 3DS diferenciada de tokenization.
+
+=== Impacto por componente
+
+[cols="3,3,2,2",options="header"]
+|===
+|Componente/archivo |Cambio esperado |Rango LOC |Riesgo
+|`NotificationTokenizationController` |`Ruteo` por `useCase`, validaciones mínimas 3DS, normalización de respuesta |20-50 |Medio
+|`INotificaionService` + `NotificationService` |Nuevos métodos/ramas para flujo 3DS, reglas de expiración, intentos, idempotencia, estado funcional 3DS |120-220 |Alto
+|`SendPassCodeTokenization` (y/o nuevo DTO 3DS) |Campos de correlación 3DS (`threeDSServerTransID`, `dsTransID`/`transactionId`, TTL, max intentos) |20-60 |Medio
+|`INotificationRepository` + `NotificationRepository` |Nuevas operaciones de persistencia/consulta para intentos y traza 3DS (evitar mezclar solo con `saveTokenizationNotification`) |80-160 |Alto
+|Persistencia DB (SP/tablas) |SP nueva o extendida para traza 3DS + estado de intentos/expiración + idempotencia |60-140 |Alto
+|Configuración (`notificationCategories`) |Nueva categoria/flags 3DS y feature flag por tenant |10-30 |Bajo
+|Pruebas (unitarias/integración) |Casos por flujo `TOKENIZATION` y `THREEDS` + regresión de sendPassCode actual |120-240 |Alto
+|===
+
+=== Totales estimados
+
+[cols="1,3",options="header"]
+|===
+|Métrica |Estimación
+|Archivos Java impactados |6-10
+|Archivos de configuración impactados |1-3
+|Objetos de DB impactados (SP/tablas/vistas según implementación) |2-5
+|Lineas de código (Java + config + scripts DB, sin tests) |310-660 LOC
+|Líneas de pruebas (recomendadas) |120-240 LOC
+|Esfuerzo relativo |Medio-Alto
+|===
+
+=== Escenarios de esfuerzo
+
+[cols="2,3,2",options="header"]
+|===
+|Escenario |Descripción |Impacto aproximado
+|Mínimo viable |Solo enrutamiento 3DS + envío OTP + traza básica, con controles parciales |250-380 LOC
+|Recomendado |Incluye expiración, intentos, idempotencia, trazabilidad completa y pruebas separadas |430-780 LOC
+|===
+
+NOTE: La mayor incertidumbre de esfuerzo está en capa de persistencia y definición funcional final de estados 3DS.
+Si se exige auditoria fuerte por regulación, el impacto se desplaza al rango alto.
+

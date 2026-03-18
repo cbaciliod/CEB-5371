@@ -1,0 +1,43 @@
+== Plataformas de envío (email/sms)
+
+La selección del canal para `sendPassCode` se define por `otpDestiny`:
+
+. Si `otpDestiny` es email (`isEmail=true`), se usa el canal `email`.
+. En caso contrario, se usa el canal `sms`.
+
+En `sendPassCode` los providers quedan así:
+
+[cols="2,1,2,2",options="header"]
+|===
+|Flujo |Canal |Método en servicio |Provider (`$PROVIDERS$`)
+|`/tokenization/sendPassCode` |Email |`sendEmailSendPassCodeTokenization` |`novo`
+|`/tokenization/sendPassCode` |SMS |`sendSmsSendPasscodeTokenization` |`payHubBnp`
+|===
+
+Comparativo rápido con otros flujos del mismo servicio:
+
+[cols="2,1,2,2",options="header"]
+|===
+|Flujo |Canal |Método en servicio |Provider (`$PROVIDERS$`)
+|`/tokenization/notifications` |Email |`sendEmailNotificationTokenization` |`novo`
+|`/tokenization/notifications` |SMS |`sendSmsNotificationTokenization` |`payHubBnp`
+|Notificaciones generales |Email |`sendEmail` |`""` (sin provider explicito)
+|Notificaciones generales |SMS |`sendSms` |`twilio`
+|===
+
+NOTE: El provider real final depende del `ruteo` y la configuración del Message Connector; aquí se documenta el valor que este servicio `setea` en la URL.
+
+== Dependencias y restricciones fuera de tokenization
+
+El uso actual de `sendPassCode` depende de componentes y supuestos propios del dominio de `tokenización`:
+
+. Configuración por tenant (`configService`) y categoría fija `tkSendPassCode`.
+. Validación criptográfica basada en `verify(...)` y `decrypt(...)` con `tokenizationSettings`.
+. Contrato de entrada `SendPassCodeTokenization`.
+. Mapeo del payload desencriptado a `EncryptedDataSendPass`.
+. Consulta de cliente por PAN mediante `getCustomerInfoTokenization(...)`.
+. Persistencia de auditoría mediante `saveTokenizationNotification(...)`.
+. Envío por `Message Connector` con providers actuales `novo` y `payHubBnp`.
+
+Estas dependencias implican que el endpoint no es un servicio genérico de OTP, sino un flujo especializado de `tokenización`.
+

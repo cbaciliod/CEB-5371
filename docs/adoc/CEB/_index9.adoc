@@ -1,0 +1,34 @@
+== Plan B: adaptación del endpoint actual si no aprueban endpoint 3DS dedicado
+
+Si la propuesta de endpoint dedicado es rechazada, se recomienda una adaptación controlada sobre `sendPassCode` para reducir riesgo de regresión y mantener compatibilidad con el flujo actual.
+
+=== Estrategia de adaptación recomendada
+
+. Introducir un discriminador de caso de uso en request (ejemplo: `useCase=TOKENIZATION|THREEDS`).
+.. Si no llega `useCase`, asumir `TOKENIZATION` por compatibilidad hacia atrás.
+. Separar la orquestación de negocio por flujo interno:
+.. `TOKENIZATION` -> Flujo actual sin cambios funcionales.
+.. `THREEDS` -> Flujo nuevo con reglas 3DS.
+. Extender contrato para 3DS sin romper clientes actuales:
+.. Identificadores de correlación 3DS (por ejemplo `threeDSServerTransID`, `transactionId`/`dsTransID`).
+.. Parámetros funcionales de OTP (TTL/expiración real e intentos máximos).
+. Implementar reglas de negocio 3DS que hoy no existen en el endpoint:
+.. Validación de expiración OTP antes de envío.
+.. Control de intentos (conteo, incremento y bloqueo por máximos).
+.. Idempotencia por correlación transaccional para reintentos técnicos.
+. Mantener trazabilidad separada para 3DS:
+.. Crear persistencia dedicada 3DS (evitar registrar 3DS solo en `saveTokenizationNotification(...)`).
+. Ajustar respuesta de negocio para flujo 3DS:
+.. Incluir estado funcional (ejemplo: `OTP_SENT`, `OTP_EXPIRED`, `ATTEMPTS_EXCEEDED`, `CHANNEL_NOT_ALLOWED`).
+
+=== Riesgos residuales del Plan B
+
+. Mezcla parcial de dominios dentro del mismo endpoint público.
+. Mayor complejidad de mantenimiento (doble flujo en una misma operación).
+. Mayor superficie de pruebas de regresión en tokenization.
+
+=== Mitigaciones mínimas para aplicar Plan B
+
+. Feature flag por tenant para activar gradualmente el modo `THREEDS`.
+. Suite de pruebas separada por flujo (`TOKENIZATION` y `THREEDS`).
+. Monitoreo con métricas diferenciadas por `useCase`.

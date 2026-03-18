@@ -1,0 +1,34 @@
+== Hallazgos del comportamiento actual
+
+=== Funcionamiento end-to-end (E2E)
+
+El flujo funcional de `POST /\{tenant\}/\{customerType\}/tokenization/sendPassCode` es:
+
+. El controlador recibe `SendPassCodeTokenization`, registra logs y carga configuración por tenant con `configService(tenantId)`.
+. Se valida y procesa `encryptedData` con `verify(...)` y luego `decrypt(...)`.
+. El JSON desencriptado se mapea a `EncryptedDataSendPass`.
+.. Si el mapeo falla, responde `HTTP 200` sin body.
+. Se calcula el canal de envío (`msgType`) desde `otpDestiny`:
+.. Si `isEmail(otpDestiny)=true`, canal `email`.
+.. En caso contrario, canal `sms`.
+. Se evalúa `notificationCategories.emulate`:
+.. Si `emulate=true`, responde `rc=0`, `msg=OK` sin envío real ni persistencia.
+.. Si `emulate=false`, continua el flujo real.
+. En flujo real se invoca `setNewSendPassCodeTokenization(...)`.
+. El servicio valida la categoría `tkSendPassCode`:
+.. Si está inactiva, retorna el mensaje `Notification category: tkSendPassCode Disabled`.
+.. Si está activa, continua.
+. Se consulta cliente por PAN con `getCustomerInfoTokenization(...)` en repositorio.
+.. Si ocurre `NovoException` en esta consulta, se lanza `CUSTOMER_ID_NOT_FOUND`.
+. Se envía OTP según canal y configuración activa de categoría:
+.. Email -> `sendEmailSendPassCodeTokenization` -> provider `novo`.
+.. SMS -> `sendSmsSendPasscodeTokenization` -> provider `payHubBnp`.
+.. Si el canal correspondiente no está activo en configuración, no se envía mensaje.
+. Se guarda traza de `tokenización` en BD con `saveTokenizationNotification(...)`.
+.. Si falla el guardado de traza, se registra en log y el flujo principal continua.
+. Se responde `HTTP 200` con `NovoResponse` (`rc=0`, `msg=OK`) y `data` con estado de categoría.
+
+Manejo de errores del endpoint:
+
+. `NovoException`: responde con HTTP según `ResponseType` y body de negocio.
+. Excepción genérica: responde con `HTTP 500` y mensaje de error.

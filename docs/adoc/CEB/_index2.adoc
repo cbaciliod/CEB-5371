@@ -1,0 +1,10 @@
+== Resumen ejecutivo
+
+[cols="1,3",options="header"]
+|===
+|Punto |Conclusión
+|Decisión principal |`SendPassCode` *no debe reutilizarse directamente* como endpoint de negocio para 3DS.
+|Reutilización viable |*Parcial*, solo a nivel de componentes internos (criptografía, selección de canal e integración con `Message Connector`).
+|Motivo principal |El flujo actual está acoplado al dominio de `tokenización` en contrato, categoría, lookup y persistencia.
+|Recomendación |Crear un endpoint o flujo específico para 3DS y reutilizar internamente solo componentes comunes.
+|===

@@ -1,0 +1,55 @@
+== Anexo: flujo 3DS propuesto (E2E)
+
+Como complemento de la recomendación, se propone un flujo 3DS dedicado (ejemplo referencial: `POST /\{tenant\}/\{customerType\}/3ds/sendOtp`) para separar dominio de autenticación 3DS del dominio de tokenization.
+
+=== Flujo funcional propuesto
+
+. Recibir request 3DS con contrato propio (datos de autenticación y de notificación).
+. Validar estructura minima obligatoria (`threeDSServerTransID`, `transactionId`, destino OTP, metadata de canal).
+. Validar firma/cifrado (`verify` / `decrypt`) reutilizando el componente criptográfico actual, si aplica al canal 3DS.
+. Resolver canal de envío (`email` o `sms`) según regla de negocio 3DS y destino recibido.
+. Consultar configuración de categoria 3DS (nueva categoria, separada de `tkSendPassCode`).
+. Consultar estado de la transacción 3DS y contador de intentos.
+. Evaluar reglas de control:
+.. Si OTP expirado -> rechazar con estado de expiración.
+.. Si intentos excedidos -> rechazar con estado de bloqueo.
+.. Si reglas validas -> continuar envío.
+. Enviar OTP por `Message Connector` (email/sms) reutilizando adaptadores de canal existentes.
+. Persistir trazabilidad 3DS en estructura dedicada (no `saveTokenizationNotification`).
+. Responder con contrato 3DS (estado de operación y códigos de negocio de autenticación).
+
+=== Reglas de decision mínimas (3DS)
+
+[cols="2,2,2",options="header"]
+|===
+|Condición |Acción |Resultado esperado
+|Canal no permitido por política 3DS |No enviar OTP |Respuesta de rechazo funcional
+|OTP expirado |No enviar OTP |Respuesta de expiración
+|Intentos máximos alcanzados |No enviar OTP |Respuesta de bloqueo por intentos
+|Canal válido + OTP vigente + intentos disponibles |Enviar OTP |Respuesta de éxito
+|===
+
+=== Trazabilidad propuesta para 3DS
+
+Se recomienda persistir, como mínimo:
+
+. `requestId` (cabecera de correlación).
+. `threeDSServerTransID` (correlación 3DS extremo a extremo).
+. `transactionId`/`dsTransID` (según contrato final).
+. Canal seleccionado, proveedor usado y resultado de entrega.
+. Estado de intento (numero de intento, disponible/restante, vencimiento OTP).
+. Estado final de autenticación relacionado al envío OTP.
+
+=== Respuestas esperadas del endpoint 3DS
+
+Se recomienda definir un contrato explícito con estados de negocio 3DS.
+Como base minima:
+
+. Éxito de envío OTP.
+. Rechazo por expiración de OTP.
+. Rechazo por intentos máximos.
+. Rechazo por canal no habilitado.
+. Error de negocio (datos o estado de transacción inválido).
+. Error técnico (falla de integración).
+
+NOTE: Este anexo mantiene la reutilización técnica parcial (criptografía, canal y conector), pero separa contrato, reglas y trazabilidad del dominio de tokenization.

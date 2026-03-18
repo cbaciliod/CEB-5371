@@ -1,0 +1,43 @@
+== Factibilidad de reutilización para 3DS
+
+Conclusión: *no es recomendable reutilizar este endpoint de forma directa para implementar 3DS*; *sí es factible reutilizar partes internas del flujo*.
+
+=== Por que no es reutilizable de forma directa
+
+Este endpoint está acoplado al caso de uso de tokenization/sendPassCode por varias razones:
+
+. El contrato de entrada está definido por `SendPassCodeTokenization`, con campos y semántica orientados a tokenization.
+. `El` `encryptedData` Se valida y se mapea a `EncryptedDataSendPass`, cuyo contenido esperado también responde al dominio de tokenization.
+. La categoria funcional usada por el servicio es fija: `tkSendPassCode`.
+. La persistencia se realiza con `saveTokenizationNotification(...)`, que guarda una traza con estructura de tokenization y no una de autenticación 3DS.
+. La lógica actual determina canal solo a partir de `otpDestiny` (email v.s sms), pero no contempla atributos propios de 3DS como `challenge`, `transaction status`, `acs`, `ds`, `cavv`, `eci`, `transStatusReason` o correlación específica de autenticación.
+
+=== Que si se puede reutilizar
+
+Hay componentes que podrían reaprovecharse para una implementación 3DS:
+
+. Verificación y desencriptado (`verify` / `decrypt`) si 3DS usa el mismo esquema JWS/JWE y administración de llaves.
+. Resolución del canal de envío a partir del destino (`isEmail`).
+. Integración con `Message Connector` para envío por email o SMS.
+. Consulta de cliente por PAN, siempre que el caso de uso 3DS mantenga esa forma de identificación.
+
+=== Recomendación
+
+Para 3DS, lo aconsejable es crear un *endpoint y contrato propios*, por ejemplo una categoria dedicada y un modelo de request/response alineado al dominio 3DS.
+Internamente, se pueden reutilizar piezas comunes del flujo actual (criptografía, selección de canal y adaptación al `Message Connector`), pero evitando reutilizar sin cambios el endpoint `sendPassCode`, porque mezclaría dos dominios de negocio distintos: *tokenization* y *autenticación 3DS*.
+
+=== Clasificación final de la recomendación
+
+[cols="1,3",options="header"]
+|===
+|Opción |Resultado
+|Reutilizable sin cambios |No
+|Reutilizable con ajustes |Solo a nivel de componentes internos, no como endpoint de negocio
+|No reutilizable / requiere endpoint dedicado |Si
+|===
+
+=== Validación contra criterios de aceptación
+
+. *Criterio 1 cumplido*: se documentó el comportamiento actual de `SendPassCode` y su alcance real.
+. *Criterio 2 cumplidos*: se documentaron dependencias y restricciones para usarlo fuera de tokenization.
+. *Criterio 3 cumplidos*: se entrega una recomendación técnica clara con pros, contras, limitaciones y riesgos.

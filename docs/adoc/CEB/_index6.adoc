@@ -1,0 +1,347 @@
+== Análisis contra la necesidad de 3DS
+
+La historia solicita validar si el comportamiento actual de `SendPassCode` cubre la necesidad de envío de código y validación para 3DS.
+El resultado del análisis es el siguiente:
+
+. *Canal de envío*: cubierto parcialmente; el endpoint ya decide entre email y SMS usando `otpDestiny`.
+. *Expiración*: cubierta solo como dato transportado o persistido; no existe lógica de vencimiento.
+. *Control de intentos*: no cubierto; `otpMaxReached` no acciona reglas funcionales.
+. *Trazabilidad*: cubierta parcialmente; existe logging y persistencia, pero con semántica de `tokenización`.
+. *Dominio funcional 3DS*: no cubierto; faltan contrato, estados y trazabilidad propios de autenticación 3DS.
+
+Por lo anterior, el endpoint actual sirve como *evidencia de capacidades reutilizables*, pero no como implementación final adecuada para 3DS.
+
+== Evidencia técnica del endpoint actual
+
+=== Endpoint
+
+[source,http]
+----
+POST /{tenant}/{customerType}/tokenization/sendPassCode
+Content-Type: application/json
+Accept: application/json
+----
+
+=== Path params
+
+[cols="1,3",options="header"]
+|===
+|Parámetro |Descripción
+|`tenant` |Identificador del banco/tenant (usado para configuración y llaves criptográficas).
+|`customerType` |Tipo de cliente requerido por el routing base del controlador.
+|===
+
+=== Request body
+
+El body corresponde a la entidad `SendPassCodeTokenization`.
+
+[cols="1,1,3",options="header"]
+|===
+|Campo |Tipo |Descripción
+|`tokenRequestorID` |string |Identificador del token requestor.
+|`tokenReferenceID` |string |Referencia del token.
+|`panReferenceID` |string |Referencia del PAN.
+|`clientWalletAccountID` |string |Cuenta wallet del cliente.
+|`otpMaxReached` |string |Indicador/estado de máximos intentos OTP.
+|`otpMethodIdentifier` |string |Canal/método OTP.
+|`otpValue` |string |OTP a notificar.
+|`otpDestiny` |string |Destino OTP (email o teléfono). Si es email, el endpoint enruta por canal email; de lo contrario por sms.
+|`otpReason` |string |Motivo OTP.
+|`otpExpirationDate` |string |Fecha de expiración OTP.
+|`deviceInfo` |object |Objeto con metadata del dispositivo (se usa al persistir log).
+|`encryptedData` |string |Payload cifrado/firmado que al desencriptar debe mapear a `EncryptedDataSendPass`.
+|===
+
+NOTE: En la referencia externa de `SendPasscode` puede verse `encryptedData` como objeto JSON en claro.
+En esta implementación de `notification-core`, el endpoint procesa `encryptedData` como *string* (JWS/JWE), luego ejecuta `verify` y `decrypt` para mapearlo a `EncryptedDataSendPass`.
+
+=== Alineación con referencia externa (SendPasscode)
+
+El siguiente cuadro resume diferencias de contrato entre la referencia externa y la implementación actual evaluada:
+
+[cols="2,2,3",options="header"]
+|===
+|Campo |Referencia externa |Implementación actual (`notification-core`)
+|`otpMaxReached` |Boolean (`true/false`) |Se maneja como `String` en entidad de entrada/salida interna.
+|`OtpReason` |Se muestra con `O` mayúscula en algunos ejemplos |Se recomienda enviar `otpReason` (camelCase) para consistencia de mapeo.
+|`encryptedData` |Objeto JSON en ejemplo |Se espera `String` firmado/cifrado; el objeto va dentro del contenido desencriptado.
+|`tokenInfo` |Puede verse al mismo nivel del request en ejemplo externo |En esta implementación, `tokenInfo` debe viajar en el payload interno de `encryptedData`.
+|===
+
+NOTE: Para pruebas de integración sobre este servicio, use el contrato operativo local (tabla anterior), aunque la fuente externa se mantenga como referencia funcional del dominio.
+
+<<<
+
+==== Ejemplo de request
+
+[source,json]
+----
+{
+  "tokenRequestorID": "50123456789",
+  "tokenReferenceID": "TRX-9ad77f7f",
+  "panReferenceID": "PAN-ff28a4",
+  "clientWalletAccountID": "wallet-user-001",
+  "otpMaxReached": "false",
+  "otpMethodIdentifier": "SMS",
+  "otpValue": "184392",
+  "otpDestiny": "+573001112233",
+  "otpReason": "TOKEN_PROVISIONING",
+  "otpExpirationDate": "2026-03-17T21:10:00Z",
+  "deviceInfo": {
+    "deviceID": "A1B2C3D4E5"
+  },
+  "encryptedData": "<JWS que contiene JWE>"
+}
+----
+
+=== Contenido esperado dentro de `encryptedData` (desencriptado)
+
+Internamente, el controlador hace `verify` + `decrypt`, y el JSON resultante se mapea a `EncryptedDataSendPass`.
+
+[source,json]
+----
+{
+  "cardholderInfo": {
+    "primaryAccountNumber": "4111111111111111",
+    "name": "JOHN DOE",
+    "otpDestiny": null,
+    "highValueCustomer": false
+  },
+  "riskInformation": {
+    "accountHolderName": "JOHN DOE",
+    "visaTokenScore": "05",
+    "visaTokenDecisioning": "APPROVE"
+  },
+  "tokenInfo": {
+    "token": "4761739001010010",
+    "tokenType": "NETWORK",
+    "tokenStatus": "ACTIVE",
+    "tokenAssuranceMethod": "RISK_BASED_AUTH",
+    "numberOfActiveTokensForPAN": 1,
+    "numberOfInactiveTokensForPAN": 0,
+    "numberOfSuspendedTokensForPAN": 0,
+    "autoFillIndicator": true
+  }
+}
+----
+
+=== Responses
+
+==== 200 OK (flujo normal)
+
+Cuando no hay excepción, la respuesta es `NovoResponse` serializada.
+
+[source,json]
+----
+{
+  "rc": "0",
+  "msg": "OK",
+  "data": "Notification category: tkSendPassCode Activate"
+}
+----
+
+Notas:
+
+. Si la categoria `tkSendPassCode` esta inactiva, `data` cambia a `Notification category: tkSendPassCode Disabled`.
+. Si `notificationCategories.emulate=true`, se devuelve 200 con `rc/msg` y sin ejecutar envío/persistencia (normalmente `data` ausente).
+
+==== 200 OK (body invalido tras decrypt)
+
+Si falla el mapeo del JSON desencriptado a `EncryptedDataSendPass`, el controlador retorna `HTTP 200` sin body.
+
+==== Error de negocio (`NovoException`)
+
+Si se lanza `NovoException` (por ejemplo, cliente no encontrado), el endpoint responde con el HTTP code asociado a `ResponseType` y el body de error.
+
+Ejemplo referencial de estructura:
+
+[source,json]
+----
+{
+  "rc": "<codigo_negocio>",
+  "msg": "<descripción>"
+}
+----
+
+==== 500 Internal Server Error
+
+Ante excepción no controlada:
+
+[source,text]
+----
+<mensaje de la excepcion>
+----
+
+== Evaluación de factibilidad para 3DS
+
+[cols="2,1,3",options="header"]
+|===
+|Capacidad requerida por 3DS |Cobertura actual en `sendPassCode` |Observación
+|Canal de envío |Parcial |Si soporta email o SMS según `otpDestiny`, y reutiliza `Message Connector`.
+|Expiración OTP |Parcial |Recibe y persiste `otpExpirationDate`, pero no aplica validación ni gestion funcional de vencimiento.
+|Control de intentos |No |Recibe/persiste `otpMaxReached`, pero no implementa conteo, bloqueo, incremento ni reglas de intentos.
+|Trazabilidad |Parcial |Existe logging, `requestId` y persistencia, pero la traza queda modelada como tokenization, no como autenticación 3DS.
+|Contrato 3DS |No |`El` `request/response` y el payload desencriptado están orientados a tokenization, no a challenge/autenticación 3DS.
+|===
+
+=== Pros de una reutilización parcial
+
+. Ya existe integración para envío OTP por email y SMS.
+. Ya existe infraestructura de `verify(...)` / `decrypt(...)`.
+. Ya existe lookup de cliente por PAN.
+. Ya existe integración centralizada con `Message Connector`.
+
+=== Contras y limitaciones
+
+. El contrato actual está acoplado al dominio de tokenization.
+. La categoria funcional es fija (`tkSendPassCode`).
+. La persistencia actual registra eventos en estructura de tokenization.
+. El endpoint no implementa lógica completa de expiración, intentos ni validación OTP.
+. No contempla atributos y estados propios de 3DS.
+
+=== Riesgos de reutilizarlo directamente en 3DS
+
+. Mezcla de dominios de negocio: tokenization y autenticación 3DS.
+. Auditoria y trazabilidad ambigua al persistir eventos 3DS como tokenization.
+. Incremento de acoplamiento y riesgo de regresión sobre el flujo actual de tokenization.
+. Necesidad de introducir cambios de negocio en un endpoint ya operativo para otro caso de uso.
+
+=== cURL de ejemplo
+
+[source,bash]
+----
+curl -X POST "https://<host>/<tenant>/<customerType>/tokenization/sendPassCode" \
+  -H "Content-Type: application/json" \
+  -H "Accept: application/json" \
+  -d '{
+    "tokenRequestorID": "50123456789",
+    "tokenReferenceID": "TRX-9ad77f7f",
+    "panReferenceID": "PAN-ff28a4",
+    "clientWalletAccountID": "wallet-user-001",
+    "otpMaxReached": "false",
+    "otpMethodIdentifier": "SMS",
+    "otpValue": "184392",
+    "otpDestiny": "+573001112233",
+    "otpReason": "TOKEN_PROVISIONING",
+    "otpExpirationDate": "2026-03-17T21:10:00Z",
+    "deviceInfo": {"deviceID": "A1B2C3D4E5"},
+    "encryptedData": "<JWS que contiene JWE>"
+  }'
+----
+
+=== cURLs de referencia observada
+
+==== SendPassCode (proceso actual según referencia externa)
+
+[source,bash]
+----
+curl --request POST \
+  --url https://urlissuer/v1/sendPasscode \
+  --header 'Content-Type: application/json' \
+  --data '{
+  "tokenRequestorID": 40022358888,
+  "tokenReferenceID": "DNITHE30194726875288888",
+  "panReferenceID": "V-3019231458906209630635",
+  "clientWalletAccountID": "string",
+  "otpMaxReached": true,
+  "otpMethodIdentifier": "string",
+  "otpValue": "string",
+  "OtpReason": "PROVISIONING",
+  "otpExpirationDate": "string",
+  "deviceInfo": {
+    "deviceID": "CTF0000000001",
+    "deviceIndex": 99,
+    "deviceLanguageCode": "eng",
+    "deviceType": "PHONE",
+    "deviceName": "Novo_Phone",
+    "deviceNumber": 6506198963,
+    "osType": "ANDROID",
+    "osVersion": "4.4.4",
+    "osBuildID": 13.1,
+    "deviceIDType": "TEE",
+    "deviceManufacturer": "Samsung",
+    "deviceBrand": "Galaxy",
+    "deviceModel": "M05",
+    "deviceLocation": "string",
+    "deviceIPAddressV4": "127.0.0.1",
+    "locationSource": "WIFI",
+    "tokenProtectionMethod": "CLOUD",
+    "originalDeviceID": "...",
+    "originalDeviceType": "..."
+  },
+  "encryptedData": {
+    "cardholderInfo": {
+      "primaryAccountNumber": "0000000000000000",
+      "otpDestiny": "57300800800"
+    }
+  },
+  "tokenInfo": {
+    "token": "...",
+    "tokenType": "ECOMMERCE",
+    "tokenStatus": "ACTIVE",
+    "tokenExpirationDate": {
+      "month": 7,
+      "year": 2016
+    },
+    "tokenRequestorName": "NovoPayment Wallet",
+    "tokenAssuranceMethod": "00",
+    "numberOfActiveTokensForPAN": 2,
+    "numberOfInactiveTokensForPAN": 2,
+    "numberOfSuspendedTokensForPAN": 0,
+    "tokenActivationDate": "2022-04-25T23:19:12.000Z",
+    "tokenDeactivationDate": "...",
+    "lastTokenStatusUpdatedTime": "...",
+    "originalToken": "...",
+    "originalTokenRequestorID": "...",
+    "originalTokenReferenceID": "...",
+    "originalTokenType": "SECURE_ELEMENT",
+    "originaltokenAssuranceMethod": "00",
+    "autoFillIndicator": false
+  }
+}'
+----
+
+NOTE: El cURL anterior corresponde al proceso actual de `SendPassCode` documentado en la referencia externa.
+
+[source,bash]
+----
+curl --location 'https://banco-nacional-pa.novopayment.net/notification-core/v1/bnp_pa/retail/tokenization/sendPassCode' \
+--header 'Content-Type: application/json' \
+--header 'x-context-id: bnp_pa' \
+--data-raw '{
+  "tokenRequestorID": 40022358888,
+  "tokenReferenceID": "DNITHE30194726875288888",
+  "panReferenceID": "V-3019231458906209630635",
+  "clientWalletAccountID": "string",
+  "otpMaxReached": true,
+  "otpMethodIdentifier": "string",
+  "otpValue": "12345",
+  "otpDestiny": "joaquinteromo552@gmail.com",
+  "OtpReason": "PROVISIONING",
+  "otpExpirationDate": "string",
+  "deviceInfo": {
+    "deviceID": "CTF0000000001",
+    "deviceIndex": 99,
+    "deviceLanguageCode": "eng",
+    "deviceType": "PHONE",
+    "deviceName": "Novo_Phone",
+    "deviceNumber": 6506198963,
+    "osType": "ANDROID",
+    "osVersion": "4.4.4",
+    "osBuildID": 13.1,
+    "deviceIDType": "TEE",
+    "deviceManufacturer": "Samsung",
+    "deviceBrand": "Galaxy",
+    "deviceModel": "M05",
+    "deviceLocation": "string",
+    "deviceIPAddressV4": "127.0.0.1",
+    "locationSource": "WIFI",
+    "tokenProtectionMethod": "CLOUD",
+    "originalDeviceID": "...",
+    "originalDeviceType": "..."
+  },
+  "encryptedData": "<payload omitido>"
+}'
+----
+
+NOTE: Los ejemplos anteriores son payloads de referencia observada y se documentan para contrastar el uso actual del endpoint con la necesidad de 3DS.

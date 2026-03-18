@@ -1,0 +1,34 @@
+ifndef::diagramDir[:diagramDir: ./diagrams]
+
+== Referencia de flujo
+
+Este endpoint tiene dos vistas complementarias de flujo:
+
+. Secuencia end-to-end: `docs/adoc/CEB/diagrams/5371.puml`
+
+[plantuml,align="center"]
+----
+include::diagrams/CEB-5371.puml[]
+----
+
+<<<
+
+. Diagrama de actividad (flujo puro): `docs/adoc/CEB/diagrams/flow/5371.puml`
+
+[plantuml,align="center"]
+----
+include::diagrams/flow/CEB-5371.puml[]
+----
+
+<<<
+. Diagrama comparativo (actual vs propuesta 3DS): `docs/adoc/CEB/diagrams/CEB-5371-3DS.puml`
+
+[plantuml,align="center"]
+----
+include::diagrams/CEB-5371-3DS.puml[]
+----
+
+=== Convención visual del comparativo
+
+. Azul: flujo actual de `sendPassCode` en tokenization.
+. Naranja: flujo propuesto para reutilización controlada en 3DS.

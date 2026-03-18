@@ -20,7 +20,7 @@ cbacilio; Novopayment
 :sourcedir: {docdir}
 ifndef::imagesdir[:imagesdir: images]
 ifdef::backend-pdf[]
-ifndef::diagramDir[:diagramDir: diagrams]
+ifndef::diagramDir[:diagramDir: docs]
 :pdf-themesdir: {sourcedir}/theme
 :pdf-theme: novopayment
 :pdf-page-size: A4

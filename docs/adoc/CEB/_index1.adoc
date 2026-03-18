@@ -1,0 +1,34 @@
+== Objetivo
+
+Documentar, con base en la historia interna y en la implementación actual, si el endpoint `POST /\{tenant\}/\{customerType\}/tokenization/sendPassCode` puede reutilizarse en el servicio de 3DS o si requiere un endpoint o flujo dedicado.
+
+=== Contexto del análisis interno
+
+[cols="1,3",options="header"]
+|===
+|Item |Detalle
+|Historia |`[BNP] [INTERNO] Análisis de reutilización de SendPassCode para 3DS`
+|Ticket origen |`CEB-4255: [BNP] / pa-bnp / 3DS / SendOTP: Incluir en el proceso de envío de Mensajes Email & SMS del Banco, las peticiones de SendOTP`
+|Objetivo del análisis |Determinar si `SendPassCode` puede reutilizarse en el servicio de 3DS o si se requiere un endpoint o flujo específico.
+|Referencia funcional externa |`https://developer.novopayment.com/api/tokenization/issuer-tokenization-api-v1.0#/operations/SendPasscode`
+|===
+
+=== Contexto
+
+Se solicitó evaluar si el endpoint `SendPassCode`, hoy implementado en el contexto de `tokenización`, puede cubrir la necesidad de envío de código y validación requerida por 3DS.
+
+=== Alcance del análisis
+
+Este documento cubre:
+
+- Objetivo funcional actual del endpoint y del flujo donde se usa hoy.
+- Dependencias técnicas y de negocio necesario para operarlo.
+- Validación de capacidades relevantes para 3DS: canal de envío, expiración, control de intentos y trazabilidad.
+- Impactos, riesgos y limitaciones de reutilizar el flujo actual en 3DS.
+- Recomendación técnica final: reutilizable sin cambios, reutilizable con ajustes o no reutilizable.
+
+=== Criterios de aceptación de la historia
+
+- Se documenta el comportamiento actual de `SendPassCode` y su alcance real.
+- Se documentan las dependencias y restricciones para usarlo fuera de tokenization.
+- Se entrega una recomendación técnica clara sobre su reutilización en 3DS, con pros, contras y riesgos.
