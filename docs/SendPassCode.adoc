@@ -1,0 +1,32 @@
+= Novopayment - [BNP] [INTERNO] Análisis de reutilización de SendPassCode para 3DS
+cbacilio; Novopayment
+:revnumber: v1.0.0
+:revdate: 17.03.2026
+:revremark: [BNP] [INTERNO] Análisis de reutilización de SendPassCode para 3DS Documentation
+:description: APP api-banking-core-notification
+:author: NovoPayment, Inc.
+:email: contact@novopayment.com
+:keywords: documentation,api
+:organization: Novopayment - Developers
+:doctype: book
+:experimental:
+:reproducible:
+:icons: font
+:source-highlighter: coderay
+:listing-caption: Listing
+:sectnums:
+:toc:
+:toclevels: 3
+:sourcedir: {docdir}
+ifndef::imagesdir[:imagesdir: images]
+ifdef::backend-pdf[]
+ifndef::diagramDir[:diagramDir: diagrams]
+:pdf-themesdir: {sourcedir}/theme
+:pdf-theme: novopayment
+:pdf-page-size: A4
+:pdf-page-layout: portrait
+:title-logo-image: image:{sourcedir}/images/novopayment-logo.svg[pdfwidth=4.25in,align=center]
+:source-highlighter: rouge
+endif::[]
+
+include::adoc/CEB-5371.adoc[]

@@ -1,0 +1,89 @@
+@startuml
+skinparam shadowing false
+
+title Comparativo de flujo: SendPassCode actual vs reutilizacion propuesta para 3DS
+
+autonumber
+
+legend right
+|= Color |= Significado |
+|<#DCEBFF> Azul | Flujo actual (/tokenization/sendPassCode) |
+|<#FFE8CC> Naranja | Flujo propuesto para reutilizacion en 3DS |
+endlegend
+
+actor "Cliente / Origen" as Client
+participant "NotificationTokenizationController" as Controller
+participant "NotificationService" as Service
+participant "NotificationRepository" as Repo
+database "Oracle DB" as DB
+participant "Message Connector" as Msg
+
+group Flujo actual (tokenization)
+  Client -[#3B82F6]> Controller : POST /{tenant}/{customerType}/tokenization/sendPassCode
+  activate Controller #DCEBFF
+  Controller -[#3B82F6]> Service : configService(tenantId)
+  Controller -[#3B82F6]> Controller : verify + decrypt(encryptedData)
+  Controller -[#3B82F6]> Controller : map -> EncryptedDataSendPass
+
+  alt emulate=false
+    Controller -[#3B82F6]> Service : setNewSendPassCodeTokenization(...)
+    activate Service #DCEBFF
+    Service -[#3B82F6]> Repo : getCustomerInfoTokenization(tenant, PAN)
+    Repo -[#3B82F6]> DB : customer_profile_by_card
+    DB -[#3B82F6]>> Repo : personalInfo/contact
+    Repo -[#3B82F6]>> Service : customer data
+
+    alt msgType=email
+      Service -[#3B82F6]> Msg : send (provider=novo)
+    else msgType=sms
+      Service -[#3B82F6]> Msg : sendSms (provider=payHubBnp)
+    end
+
+    Service -[#3B82F6]> Repo : saveTokenizationNotification(trace)
+    Repo -[#3B82F6]> DB : save_log_token_notification
+    Service -[#3B82F6]>> Controller : data="category active/disabled"
+    deactivate Service
+  else emulate=true
+    Controller -[#3B82F6]> Controller : no envia / no persiste
+  end
+
+  Controller -[#3B82F6]>> Client : HTTP 200 rc=0,msg=OK
+  deactivate Controller
+end
+
+== Separador: flujo propuesto 3DS ==
+
+group Flujo propuesto (reutilizacion para 3DS)
+  Client -[#F97316]> Controller : POST /{tenant}/{customerType}/tokenization/sendPassCode\n+ useCase=THREEDS
+  activate Controller #FFE8CC
+  Controller -[#F97316]> Service : routeTo3DSFlow(...)
+  activate Service #FFE8CC
+
+  Service -[#F97316]> Service : validar campos 3DS\n(threeDSServerTransID, transactionId, otpDestiny)
+  Service -[#F97316]> Service : validar expiracion OTP
+  Service -[#F97316]> Service : validar e incrementar intentos
+
+  alt intentos excedidos o OTP expirado
+    Service -[#F97316]>> Controller : estado 3DS reject (EXPIRED/ATTEMPTS_EXCEEDED)
+  else reglas OK
+    Service -[#F97316]> Repo : getCustomerInfoTokenization(tenant, PAN) [opcional]
+    Repo -[#F97316]> DB : customer_profile_by_card [opcional]
+
+    alt canal=email
+      Service -[#F97316]> Msg : send (provider=novo)
+    else canal=sms
+      Service -[#F97316]> Msg : sendSms (provider=payHubBnp)
+    end
+
+    Service -[#F97316]> Repo : save3DSOtpTrace(...)\n(nueva traza 3DS)
+    Repo -[#F97316]> DB : save_3ds_otp_trace
+    Service -[#F97316]>> Controller : estado 3DS success (OTP_SENT)
+  end
+
+  Controller -[#F97316]>> Client : HTTP 200/4xx con estado de negocio 3DS
+  deactivate Service
+  deactivate Controller
+end
+
+@enduml
+
